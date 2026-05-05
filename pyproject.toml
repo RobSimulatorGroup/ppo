@@ -1,0 +1,25 @@
+[project]
+name = "gobot-ppo"
+version = "0.1.0"
+description = "PPO training code for Gobot robotics environments."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.26",
+    "torch>=2.5",
+]
+
+[project.optional-dependencies]
+gym = [
+    "gymnasium>=1.0",
+]
+
+[project.scripts]
+gobot-ppo = "gobot_ppo.train:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
