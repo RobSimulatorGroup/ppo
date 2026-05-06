@@ -1,4 +1,6 @@
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, fields
+from pathlib import Path
 
 
 @dataclass
@@ -17,3 +19,35 @@ class PPOConfig:
     seed: int = 1
     hidden_size: int = 128
     initial_log_std: float = -1.0
+    action_scale: float = 0.25
+    action_rate_limit: float = 0.05
+    finite_observation_limit: float = 1.0e6
+    finite_reward_limit: float = 1.0e6
+    invalid_reward: float = -1.0
+    log_path: str = "runs/train.csv"
+    save_dir: str = "checkpoints"
+    save_every: int = 0
+    resume: str = ""
+
+
+def load_config_file(path):
+    config_path = Path(path)
+    text = config_path.read_text(encoding="utf-8")
+    if config_path.suffix.lower() in {".yaml", ".yml"}:
+        try:
+            import yaml
+        except ImportError as error:
+            raise RuntimeError("YAML config files require PyYAML. Run `uv sync`.") from error
+        data = yaml.safe_load(text)
+        return data or {}
+    if config_path.suffix.lower() == ".json":
+        return json.loads(text)
+    raise ValueError(f"unsupported config file format: {config_path.suffix}")
+
+
+def update_dataclass(instance, values):
+    names = {field.name for field in fields(instance)}
+    for name, value in values.items():
+        if name in names:
+            setattr(instance, name, value)
+    return instance

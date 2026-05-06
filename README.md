@@ -49,21 +49,31 @@ GOBOT_PYTHONPATH=/home/wqq/gobot/build_ppo/python \
 uv run gobot-ppo --total-steps 8 --rollout-steps 4 --device cpu
 ```
 
-H2 in `/home/wqq/test_godot` with MuJoCo:
+a2 in `/home/wqq/test_godot` with MuJoCo:
 
 ```bash
-GOBOT_PYTHONPATH=/home/wqq/gobot/build_ppo/python \
-uv run gobot-ppo \
-  --project /home/wqq/test_godot \
-  --scene res://world.jscn \
-  --robot H2 \
-  --backend mujoco \
-  --total-steps 4096 \
-  --rollout-steps 256 \
-  --device cuda
+uv run gobot-ppo --config configs/a2_mujoco.yaml
 ```
 
-Current H2 training is a pipeline smoke, not a stable walking policy yet.
-Random initial policy actions can still make MuJoCo unstable. The next training
-stability work should add action scaling, lower initial policy std, finite-state
-termination, and a locomotion reward.
+Current a2 training is a pipeline smoke, not a stable walking policy yet.
+The trainer now applies conservative action scaling, action-rate limiting,
+finite observation/reward checks, CSV logging, and periodic checkpointing. These
+controls reduce MuJoCo blow-ups while the lower-level Gobot locomotion reset and
+reward model continue to mature.
+
+Override any config value from the command line:
+
+```bash
+uv run gobot-ppo --config configs/a2_mujoco.yaml \
+  --total-steps 8192 \
+  --action-scale 0.15 \
+  --action-rate-limit 0.02
+```
+
+Resume from a checkpoint:
+
+```bash
+uv run gobot-ppo --config configs/a2_mujoco.yaml \
+  --resume checkpoints/a2_mujoco/ppo_steps_4096.pt \
+  --total-steps 8192
+```

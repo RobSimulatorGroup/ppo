@@ -1,3 +1,7 @@
+import csv
+from dataclasses import asdict
+from pathlib import Path
+
 from .config import PPOConfig
 from .env import GobotGymEnv, add_gobot_pythonpath
 
@@ -72,6 +76,12 @@ class PPORunner:
             initial_log_std=self.config.initial_log_std,
         ).model.to(device)
         self.optimizer = self.torch.optim.Adam(self.agent.parameters(), lr=self.config.learning_rate)
+        self.start_steps = 0
+        self.start_episodes = 0
+        self._last_save_steps = 0
+        self._init_log()
+        if self.config.resume:
+            self._load_checkpoint(self.config.resume)
 
     def train(self):
         torch = self.torch
@@ -81,9 +91,9 @@ class PPORunner:
             raise RuntimeError(info.get("error", "failed to reset Gobot environment"))
 
         obs = torch.tensor(observation, dtype=torch.float32, device=self.device)
-        completed_steps = 0
+        completed_steps = self.start_steps
         episode_return = 0.0
-        episode_count = 0
+        episode_count = self.start_episodes
         last_loss = 0.0
 
         while completed_steps < cfg.total_steps:
@@ -96,6 +106,8 @@ class PPORunner:
             if completed_steps % max(cfg.rollout_steps, 1) == 0:
                 mean_reward = episode_return / max(episode_count, 1)
                 print(f"steps={completed_steps} episodes={episode_count} mean_reward={mean_reward:.6f} loss={last_loss:.6f}")
+                self._write_log(completed_steps, episode_count, mean_reward, last_loss)
+                self._save_checkpoint_if_needed(completed_steps, episode_count, last_loss)
 
         return {"steps": completed_steps, "episodes": episode_count, "last_loss": last_loss}
 
@@ -121,7 +133,7 @@ class PPORunner:
             next_observation, reward, terminated, truncated, info = self.env.step(
                 clipped_action.squeeze(0).cpu().tolist()
             )
-            if info.get("error"):
+            if info.get("error") and not info.get("invalid_transition"):
                 raise RuntimeError(info["error"])
 
             done = bool(terminated or truncated)
@@ -208,6 +220,58 @@ class PPORunner:
 
         return last_loss
 
+    def _init_log(self):
+        self.log_path = Path(self.config.log_path) if self.config.log_path else None
+        if self.log_path is None:
+            return
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.log_path.exists():
+            with self.log_path.open("w", newline="", encoding="utf-8") as log_file:
+                writer = csv.writer(log_file)
+                writer.writerow(["steps", "episodes", "mean_reward", "loss"])
+
+    def _write_log(self, steps, episodes, mean_reward, loss):
+        if self.log_path is None:
+            return
+        with self.log_path.open("a", newline="", encoding="utf-8") as log_file:
+            writer = csv.writer(log_file)
+            writer.writerow([steps, episodes, f"{mean_reward:.8f}", f"{loss:.8f}"])
+
+    def _checkpoint_path(self, steps):
+        save_dir = Path(self.config.save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        return save_dir / f"ppo_steps_{steps}.pt"
+
+    def _save_checkpoint_if_needed(self, steps, episodes, loss):
+        if self.config.save_every <= 0:
+            return
+        if steps - self._last_save_steps < self.config.save_every and steps < self.config.total_steps:
+            return
+        path = self._checkpoint_path(steps)
+        self.torch.save(
+            {
+                "steps": steps,
+                "episodes": episodes,
+                "loss": loss,
+                "config": asdict(self.config),
+                "model": self.agent.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+            },
+            path,
+        )
+        self._last_save_steps = steps
+        print(f"saved_checkpoint={path}")
+
+    def _load_checkpoint(self, path):
+        checkpoint = self.torch.load(path, map_location=self.device)
+        self.agent.load_state_dict(checkpoint["model"])
+        if "optimizer" in checkpoint:
+            self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.start_steps = int(checkpoint.get("steps", 0))
+        self.start_episodes = int(checkpoint.get("episodes", 0))
+        self._last_save_steps = self.start_steps
+        print(f"loaded_checkpoint={path} steps={self.start_steps}")
+
 
 def train(scene_path="", robot="robot", backend="null", project_path=None, config=None, device="cpu", gobot_pythonpath=None):
     add_gobot_pythonpath(gobot_pythonpath)
@@ -215,6 +279,17 @@ def train(scene_path="", robot="robot", backend="null", project_path=None, confi
         import gobot
 
         gobot.set_project_path(project_path)
-    env = GobotGymEnv(scene_path=scene_path, robot=robot, backend=backend, gobot_pythonpath=gobot_pythonpath)
-    runner = PPORunner(env, config=config, device=device)
+    cfg = config or PPOConfig()
+    env = GobotGymEnv(
+        scene_path=scene_path,
+        robot=robot,
+        backend=backend,
+        gobot_pythonpath=gobot_pythonpath,
+        action_scale=cfg.action_scale,
+        action_rate_limit=cfg.action_rate_limit,
+        finite_observation_limit=cfg.finite_observation_limit,
+        finite_reward_limit=cfg.finite_reward_limit,
+        invalid_reward=cfg.invalid_reward,
+    )
+    runner = PPORunner(env, config=cfg, device=device)
     return runner.train()
