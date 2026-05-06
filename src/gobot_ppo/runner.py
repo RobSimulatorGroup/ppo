@@ -273,17 +273,18 @@ class PPORunner:
         print(f"loaded_checkpoint={path} steps={self.start_steps}")
 
 
-def train(scene_path="", robot="robot", backend="null", project_path=None, config=None, device="cpu", gobot_pythonpath=None):
+def train(scene_path="", robot="robot", backend="null", project_path=None, config=None, device="cpu", gobot_pythonpath=None, env_type="rl"):
     add_gobot_pythonpath(gobot_pythonpath)
     if project_path:
         import gobot
 
-        gobot.set_project_path(project_path)
+        gobot.app.context().set_project_path(project_path)
     cfg = config or PPOConfig()
     env = GobotGymEnv(
         scene_path=scene_path,
         robot=robot,
         backend=backend,
+        env_type=env_type,
         gobot_pythonpath=gobot_pythonpath,
         action_scale=cfg.action_scale,
         action_rate_limit=cfg.action_rate_limit,

@@ -52,6 +52,7 @@ class GobotGymEnv:
         scene_path="",
         robot="robot",
         backend="null",
+        env_type="rl",
         env=None,
         gobot_pythonpath=None,
         action_scale=1.0,
@@ -63,7 +64,12 @@ class GobotGymEnv:
         add_gobot_pythonpath(gobot_pythonpath)
         import gobot
 
-        self.env = env if env is not None else gobot.RLEnvironment(scene_path, robot=robot, backend=backend)
+        if env is not None:
+            self.env = env
+        elif env_type == "cartpole":
+            self.env = gobot.CartPoleEnv(scene_path, robot=robot, backend=backend)
+        else:
+            self.env = gobot.RLEnvironment(scene_path, robot=robot, backend=backend)
         self.action_scale = float(action_scale)
         self.action_rate_limit = None if action_rate_limit is None else float(action_rate_limit)
         self.finite_observation_limit = float(finite_observation_limit)

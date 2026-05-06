@@ -1,0 +1,25 @@
+env:
+  type: cartpole
+  gobot_pythonpath: /home/wqq/gobot/build_ppo/python
+  project: /home/wqq/test_godot
+  scene: res://cartpole.jscn
+  robot: cartpole
+  backend: mujoco
+  device: cuda
+
+ppo:
+  total_steps: 4096
+  rollout_steps: 256
+  update_epochs: 4
+  minibatch_size: 64
+  learning_rate: 0.0003
+  initial_log_std: -1.0
+  action_scale: 1.0
+  action_rate_limit: 0.2
+  finite_observation_limit: 1000000.0
+  finite_reward_limit: 1000000.0
+  invalid_reward: -1.0
+  log_path: runs/cartpole_mujoco.csv
+  save_dir: checkpoints/cartpole_mujoco
+  save_every: 4096
+  seed: 1

@@ -74,6 +74,7 @@ def main():
         config=config,
         device=_pick(args.device, env_config, "device", "cpu"),
         gobot_pythonpath=_pick(args.gobot_pythonpath, env_config, "gobot_pythonpath", None),
+        env_type=env_config.get("type", "rl"),
     )
     print(result)
 

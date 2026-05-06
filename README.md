@@ -55,6 +55,12 @@ a2 in `/home/wqq/test_godot` with MuJoCo:
 uv run gobot-ppo --config configs/a2_mujoco.yaml
 ```
 
+CartPole smoke with a Gobot-authored scene:
+
+```bash
+uv run gobot-ppo --config configs/cartpole_mujoco.yaml
+```
+
 Current a2 training is a pipeline smoke, not a stable walking policy yet.
 The trainer now applies conservative action scaling, action-rate limiting,
 finite observation/reward checks, CSV logging, and periodic checkpointing. These
