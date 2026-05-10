@@ -19,6 +19,8 @@ class PPOConfig:
     seed: int = 1
     hidden_size: int = 128
     initial_log_std: float = -1.0
+    min_log_std: float = -5.0
+    max_log_std: float = 2.0
     action_scale: float = 0.25
     action_rate_limit: float = 0.05
     finite_observation_limit: float = 1.0e6

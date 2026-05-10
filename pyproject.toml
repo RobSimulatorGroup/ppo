@@ -14,9 +14,13 @@ dependencies = [
 gym = [
     "gymnasium>=1.0",
 ]
+mujoco = [
+    "mujoco>=3.0",
+]
 
 [project.scripts]
 gobot-ppo = "gobot_ppo.train:main"
+gobot-ppo-eval = "gobot_ppo.eval:main"
 
 [build-system]
 requires = ["hatchling"]

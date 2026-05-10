@@ -29,6 +29,8 @@ def main():
     parser.add_argument("--minibatch-size", type=int, default=None)
     parser.add_argument("--learning-rate", type=float, default=None)
     parser.add_argument("--initial-log-std", type=float, default=None)
+    parser.add_argument("--min-log-std", type=float, default=None)
+    parser.add_argument("--max-log-std", type=float, default=None)
     parser.add_argument("--action-scale", type=float, default=None)
     parser.add_argument("--action-rate-limit", type=float, default=None)
     parser.add_argument("--finite-observation-limit", type=float, default=None)
@@ -53,6 +55,8 @@ def main():
         "minibatch_size": args.minibatch_size,
         "learning_rate": args.learning_rate,
         "initial_log_std": args.initial_log_std,
+        "min_log_std": args.min_log_std,
+        "max_log_std": args.max_log_std,
         "action_scale": args.action_scale,
         "action_rate_limit": args.action_rate_limit,
         "finite_observation_limit": args.finite_observation_limit,
@@ -75,6 +79,7 @@ def main():
         device=_pick(args.device, env_config, "device", "cpu"),
         gobot_pythonpath=_pick(args.gobot_pythonpath, env_config, "gobot_pythonpath", None),
         env_type=env_config.get("type", "rl"),
+        env_options=env_config.get("options", {}),
     )
     print(result)
 

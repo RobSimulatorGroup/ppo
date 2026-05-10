@@ -18,7 +18,15 @@ def _require_torch():
 
 
 class ActorCritic:
-    def __init__(self, observation_size, action_size, hidden_size=128, initial_log_std=-1.0):
+    def __init__(
+        self,
+        observation_size,
+        action_size,
+        hidden_size=128,
+        initial_log_std=-1.0,
+        min_log_std=-5.0,
+        max_log_std=2.0,
+    ):
         torch, nn = _require_torch()
 
         class Model(nn.Module):
@@ -39,10 +47,13 @@ class ActorCritic:
                     nn.Linear(hidden_size, 1),
                 )
                 self.log_std = nn.Parameter(torch.full((action_size,), float(initial_log_std)))
+                self.min_log_std = float(min_log_std)
+                self.max_log_std = float(max_log_std)
 
             def forward(self, observations):
                 mean = self.actor(observations)
-                std = self.log_std.exp().expand_as(mean)
+                log_std = self.log_std.clamp(self.min_log_std, self.max_log_std)
+                std = log_std.exp().expand_as(mean)
                 dist = torch.distributions.Normal(mean, std)
                 value = self.critic(observations).squeeze(-1)
                 return dist, value
@@ -74,6 +85,8 @@ class PPORunner:
             action_size,
             hidden_size=self.config.hidden_size,
             initial_log_std=self.config.initial_log_std,
+            min_log_std=self.config.min_log_std,
+            max_log_std=self.config.max_log_std,
         ).model.to(device)
         self.optimizer = self.torch.optim.Adam(self.agent.parameters(), lr=self.config.learning_rate)
         self.start_steps = 0
@@ -263,7 +276,10 @@ class PPORunner:
         print(f"saved_checkpoint={path}")
 
     def _load_checkpoint(self, path):
-        checkpoint = self.torch.load(path, map_location=self.device)
+        try:
+            checkpoint = self.torch.load(path, map_location=self.device, weights_only=True)
+        except TypeError:
+            checkpoint = self.torch.load(path, map_location=self.device)
         self.agent.load_state_dict(checkpoint["model"])
         if "optimizer" in checkpoint:
             self.optimizer.load_state_dict(checkpoint["optimizer"])
@@ -273,12 +289,23 @@ class PPORunner:
         print(f"loaded_checkpoint={path} steps={self.start_steps}")
 
 
-def train(scene_path="", robot="robot", backend="null", project_path=None, config=None, device="cpu", gobot_pythonpath=None, env_type="rl"):
-    add_gobot_pythonpath(gobot_pythonpath)
-    if project_path:
-        import gobot
+def train(
+    scene_path="",
+    robot="robot",
+    backend="null",
+    project_path=None,
+    config=None,
+    device="cpu",
+    gobot_pythonpath=None,
+    env_type="rl",
+    env_options=None,
+):
+    if env_type not in ("mujoco_cartpole",):
+        add_gobot_pythonpath(gobot_pythonpath)
+        if project_path:
+            import gobot
 
-        gobot.app.context().set_project_path(project_path)
+            gobot.app.context().set_project_path(project_path)
     cfg = config or PPOConfig()
     env = GobotGymEnv(
         scene_path=scene_path,
@@ -286,6 +313,8 @@ def train(scene_path="", robot="robot", backend="null", project_path=None, confi
         backend=backend,
         env_type=env_type,
         gobot_pythonpath=gobot_pythonpath,
+        project_path=project_path,
+        env_options=env_options,
         action_scale=cfg.action_scale,
         action_rate_limit=cfg.action_rate_limit,
         finite_observation_limit=cfg.finite_observation_limit,
