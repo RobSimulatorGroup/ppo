@@ -1,27 +1,13 @@
 import math
-import os
 import random
-import sys
 from pathlib import Path
-
-
-try:
-    from gymnasium import Env as _GymEnv
-except Exception:
-    _GymEnv = object
 
 
 def _wrap_angle(value):
     return math.atan2(math.sin(float(value)), math.cos(float(value)))
 
 
-def add_gobot_pythonpath(path=None):
-    path = path or os.environ.get("GOBOT_PYTHONPATH")
-    if path and path not in sys.path:
-        sys.path.insert(0, path)
-
-
-class GobotBox:
+class VectorSpace:
     def __init__(self, low, high, names=None, units=None):
         self.low = [float(value) for value in low]
         self.high = [float(value) for value in high]
@@ -44,22 +30,10 @@ def space_from_spec(spec):
     lower_bounds = list(spec.get("lower_bounds", []))
     upper_bounds = list(spec.get("upper_bounds", []))
     units = list(spec.get("units", []))
-    try:
-        import numpy as np
-        from gymnasium import spaces
-
-        return spaces.Box(
-            low=np.asarray(lower_bounds, dtype=np.float32),
-            high=np.asarray(upper_bounds, dtype=np.float32),
-            dtype=np.float32,
-        )
-    except Exception:
-        return GobotBox(lower_bounds, upper_bounds, names=names, units=units)
+    return VectorSpace(lower_bounds, upper_bounds, names=names, units=units)
 
 
-class GobotGymEnv(_GymEnv):
-    metadata = {"render_modes": []}
-
+class GobotPPOEnv:
     def __init__(
         self,
         scene_path="",
@@ -67,7 +41,6 @@ class GobotGymEnv(_GymEnv):
         backend="null",
         env_type="rl",
         env=None,
-        gobot_pythonpath=None,
         project_path=None,
         env_options=None,
         action_scale=1.0,
@@ -78,7 +51,6 @@ class GobotGymEnv(_GymEnv):
         render_mode=None,
     ):
         self.render_mode = render_mode
-        self.spec = None
         if env is not None:
             self.env = env
         elif env_type == "mujoco_cartpole":
@@ -86,10 +58,7 @@ class GobotGymEnv(_GymEnv):
 
             self.env = MujocoCartPoleEnv(**dict(env_options or {}))
         elif env_type == "cartpole":
-            add_gobot_pythonpath(gobot_pythonpath)
-            import gobot  # noqa: F401
-
-            self.env = CartPoleSliderEnv(
+            self.env = GobotCartPoleTargetEnv(
                 scene_path=scene_path,
                 robot=robot,
                 backend=backend,
@@ -113,8 +82,6 @@ class GobotGymEnv(_GymEnv):
         self.action_space = space_from_spec(self.action_spec)
 
     def reset(self, seed=None, options=None):
-        if _GymEnv is not object:
-            super().reset(seed=seed)
         seed_value = None if seed is None else int(seed)
         try:
             observation, info = self.env.reset(seed=seed_value, options=options)
@@ -204,7 +171,7 @@ class GobotGymEnv(_GymEnv):
         return ""
 
 
-class CartPoleSliderEnv:
+class GobotCartPoleTargetEnv:
     """CartPole task implemented above Gobot's generic scene and joint APIs.
 
     The policy only controls the cart slider. The pole hinge stays passive and
@@ -372,6 +339,10 @@ class CartPoleSliderEnv:
             "simulation_time": float(self.context.simulation_time),
             "target_cart_position": self.target_cart_position,
             "target_position_error": self.target_cart_position - x,
+            "cart_position": x,
+            "cart_velocity": x_dot,
+            "pole_angle": theta,
+            "pole_angular_velocity": theta_dot,
             "slider_effort": effort,
             "policy_effort": policy_effort,
             "disturbance_effort": disturbance_effort,
@@ -435,7 +406,7 @@ class CartPoleSliderEnv:
         if self.project_path:
             self.context.set_project_path(str(self.project_path))
         if not self.scene_path:
-            raise RuntimeError("CartPoleSliderEnv requires a Gobot scene path.")
+            raise RuntimeError("GobotCartPoleTargetEnv requires a Gobot scene path.")
         if not self.context.has_scene or self.context.scene_path != self.scene_path:
             self.context.load_scene(self.scene_path)
         self._root = self.context.root
@@ -485,7 +456,7 @@ class CartPoleSliderEnv:
             return self.gobot.PhysicsBackendType.MuJoCoCpu
         if backend == "null":
             return self.gobot.PhysicsBackendType.Null
-        raise ValueError(f"unsupported Gobot backend for CartPoleSliderEnv: {self.backend}")
+        raise ValueError(f"unsupported Gobot backend for GobotCartPoleTargetEnv: {self.backend}")
 
     def _initial_angle(self):
         if self.randomize_initial_angle:
@@ -534,20 +505,45 @@ class CartPoleSliderEnv:
     def _reward(self, observation, action, terminated, previous_target_error, oversped_target):
         x, x_dot, theta, theta_dot, target_error = observation
         distance = abs(target_error)
+        previous_distance = abs(previous_target_error)
+        progress = max(-0.05, min(0.05, previous_distance - distance))
+        crossed_target_fast = previous_target_error * target_error < 0.0 and abs(x_dot) > self.target_velocity_tolerance
+        overshoot = max(0.0, abs(x) - abs(self.target_cart_position))
 
-        # Simple reward: alive + position closeness + balance
-        near_target = distance < 0.3
-        closeness = math.exp(-3.0 * distance * distance)
-        reward = (
-            1.0                                    # alive bonus
-            + 3.0 * closeness                      # position: peaks at target
-            + 1.0 * math.cos(theta)                # balance: 1 when upright
-            - 1.0 * x_dot * x_dot * closeness      # velocity penalty scaled by closeness
+        state_cost = (
+            8.0 * distance * distance
+            + 0.5 * x_dot * x_dot
+            + 300.0 * theta * theta
+            + 8.0 * theta_dot * theta_dot
+            + 20.0 * overshoot * overshoot
+            + 0.02 * action * action
         )
-        if near_target and abs(x_dot) < 0.15 and abs(theta) < 0.15:
-            reward += 5.0  # bonus for being still at target
+
+        reward = (
+            8.0
+            - state_cost
+            + 4.0 * progress
+        )
+        if (
+            distance <= self.target_tolerance
+            and abs(x_dot) <= self.target_velocity_tolerance
+            and abs(theta) <= 0.10
+        ):
+            reward += 8.0
+        if (
+            not self._reached_target_near
+            and distance <= self.target_near_tolerance
+            and abs(theta) <= 0.20
+        ):
+            self._reached_target_near = True
+            time_left = 1.0 - min(self.episode_steps / max(self.max_episode_steps, 1), 1.0)
+            reward += self.fast_reach_bonus * time_left
+        if oversped_target:
+            reward -= 10.0
+        if crossed_target_fast:
+            reward -= 10.0
         if terminated:
-            reward = 0.0
+            reward = -100.0
         return float(reward)
 
 

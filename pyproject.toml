@@ -11,9 +11,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gym = [
-    "gymnasium>=1.0",
-]
 mujoco = [
     "mujoco>=3.0",
 ]

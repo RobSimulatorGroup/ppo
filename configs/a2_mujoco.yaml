@@ -1,5 +1,4 @@
 env:
-  gobot_pythonpath: /home/wqq/gobot/build/python
   project: /home/wqq/test_godot
   scene: res://world.jscn
   robot: a2

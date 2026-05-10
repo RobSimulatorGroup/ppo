@@ -6,6 +6,7 @@ from pathlib import Path
 @dataclass
 class PPOConfig:
     total_steps: int = 4096
+    num_envs: int = 1
     rollout_steps: int = 256
     update_epochs: int = 4
     minibatch_size: int = 64
@@ -21,11 +22,14 @@ class PPOConfig:
     initial_log_std: float = -1.0
     min_log_std: float = -5.0
     max_log_std: float = 2.0
+    action_transform: str = "tanh"
     action_scale: float = 0.25
     action_rate_limit: float = 0.05
+    normalize_observations: bool = True
     finite_observation_limit: float = 1.0e6
     finite_reward_limit: float = 1.0e6
     invalid_reward: float = -1.0
+    reward_scale: float = 0.01
     log_path: str = "runs/train.csv"
     save_dir: str = "checkpoints"
     save_every: int = 0

@@ -2,8 +2,8 @@ import argparse
 from pathlib import Path
 
 from .config import PPOConfig, load_config_file, update_dataclass
-from .env import GobotGymEnv, add_gobot_pythonpath
-from .runner import ActorCritic, _require_torch
+from .env import GobotPPOEnv
+from .runner import ActorCritic, _require_torch, _transform_action
 
 
 def _section(config, name):
@@ -40,6 +40,12 @@ def load_policy(checkpoint_path, observation_size, action_size, config=None, dev
     ).model.to(device)
     model.load_state_dict(checkpoint["model"])
     model.eval()
+    action_transform = str(checkpoint_config.get("action_transform", "clamp"))
+    setattr(model, "_gobot_action_transform", action_transform)
+    if "obs_mean" in checkpoint and "obs_var" in checkpoint:
+        torch = _require_torch()[0]
+        setattr(model, "_gobot_obs_mean", torch.tensor(checkpoint["obs_mean"], dtype=torch.float32, device=device))
+        setattr(model, "_gobot_obs_var", torch.tensor(checkpoint["obs_var"], dtype=torch.float32, device=device))
     return model
 
 
@@ -47,8 +53,13 @@ def policy_action(model, observation, device="cpu"):
     torch, _ = _require_torch()
     with torch.no_grad():
         obs = torch.tensor(observation, dtype=torch.float32, device=device).unsqueeze(0)
+        obs_mean = getattr(model, "_gobot_obs_mean", None)
+        obs_var = getattr(model, "_gobot_obs_var", None)
+        if obs_mean is not None and obs_var is not None:
+            obs = (obs - obs_mean) / (obs_var.sqrt() + 1.0e-8)
         dist, _value = model(obs)
-        return dist.mean.squeeze(0).clamp(-1.0, 1.0).cpu().tolist()
+        action = _transform_action(torch, dist.mean, getattr(model, "_gobot_action_transform", "clamp"))
+        return action.squeeze(0).cpu().tolist()
 
 
 def evaluate(
@@ -59,26 +70,17 @@ def evaluate(
     project_path=None,
     config=None,
     device="cpu",
-    gobot_pythonpath=None,
     env_type="rl",
     env_options=None,
     steps=1000,
     seed=1,
 ):
-    if env_type not in ("mujoco_cartpole",):
-        add_gobot_pythonpath(gobot_pythonpath)
-        if project_path:
-            import gobot
-
-            gobot.app.context().set_project_path(project_path)
-
     cfg = config or PPOConfig()
-    env = GobotGymEnv(
+    env = GobotPPOEnv(
         scene_path=scene_path,
         robot=robot,
         backend=backend,
         env_type=env_type,
-        gobot_pythonpath=gobot_pythonpath,
         project_path=project_path,
         env_options=env_options,
         action_scale=cfg.action_scale,
@@ -94,25 +96,43 @@ def evaluate(
     model = load_policy(checkpoint, len(observation), int(env.env.get_action_size()), cfg, device)
     total_reward = 0.0
     episodes = 0
+    max_abs_pole_angle = 0.0
+    max_abs_cart_position = 0.0
+    total_abs_target_error = 0.0
+    last_info = {}
     for step in range(int(steps)):
         action = policy_action(model, observation, device=device)
         observation, reward, terminated, truncated, info = env.step(action)
         if info.get("error") and not info.get("invalid_transition"):
             raise RuntimeError(info["error"])
         total_reward += float(reward)
+        last_info = dict(info)
+        max_abs_pole_angle = max(max_abs_pole_angle, abs(float(info.get("pole_angle", 0.0))))
+        max_abs_cart_position = max(max_abs_cart_position, abs(float(info.get("cart_position", 0.0))))
+        total_abs_target_error += abs(float(info.get("target_position_error", 0.0)))
         if terminated or truncated:
             episodes += 1
             observation, info = env.reset()
             if not info.get("ok", True):
                 raise RuntimeError(info.get("error", "failed to reset Gobot environment"))
-    return {"steps": int(steps), "episodes": episodes, "total_reward": total_reward}
+    return {
+        "steps": int(steps),
+        "episodes": episodes,
+        "total_reward": total_reward,
+        "mean_abs_target_error": total_abs_target_error / max(int(steps), 1),
+        "final_target_error": float(last_info.get("target_position_error", 0.0)),
+        "final_cart_position": float(last_info.get("cart_position", 0.0)),
+        "final_cart_velocity": float(last_info.get("cart_velocity", 0.0)),
+        "final_pole_angle": float(last_info.get("pole_angle", 0.0)),
+        "max_abs_pole_angle": max_abs_pole_angle,
+        "max_abs_cart_position": max_abs_cart_position,
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate a trained Gobot PPO checkpoint.")
     parser.add_argument("--config", default=None)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--gobot-pythonpath", default=None)
     parser.add_argument("--project", default=None)
     parser.add_argument("--scene", default=None)
     parser.add_argument("--robot", default=None)
@@ -135,7 +155,6 @@ def main():
         project_path=_pick(args.project, env_config, "project", None),
         config=config,
         device=_pick(args.device, env_config, "device", "cpu"),
-        gobot_pythonpath=_pick(args.gobot_pythonpath, env_config, "gobot_pythonpath", None),
         env_type=env_config.get("type", "rl"),
         env_options=env_config.get("options", {}),
         steps=args.steps,

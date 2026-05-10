@@ -1,6 +1,5 @@
 env:
   type: cartpole
-  gobot_pythonpath: /home/wqq/gobot/build/python
   project: /home/wqq/test_godot
   scene: res://cartpole.jscn
   robot: cartpole
@@ -10,15 +9,18 @@ env:
     slider_joint: slider
     hinge_joint: hinge
     force_limit: 20.0
-    max_episode_steps: 1000
-    pole_angle_limit: 0.4
+    max_episode_steps: 20000
+    pole_angle_limit: 0.8
     cart_position_limit: 2.4
     initial_angle: 0.05
     initial_cart_position: 0.0
     target_cart_position: 1.0
     randomize_target_position: false
     target_tolerance: 0.05
+    target_near_tolerance: 0.1
     target_velocity_tolerance: 0.15
+    target_overspeed_limit: 0.8
+    fast_reach_bonus: 20.0
     randomize_initial_angle: false
     disturbance_force_std: 0.0
     disturbance_impulse_probability: 0.0
@@ -26,6 +28,7 @@ env:
 
 ppo:
   total_steps: 1000000
+  num_envs: 1
   rollout_steps: 2048
   update_epochs: 10
   minibatch_size: 64
@@ -33,10 +36,13 @@ ppo:
   gamma: 0.99
   gae_lambda: 0.95
   hidden_size: 64
-  initial_log_std: 0.5
-  entropy_coef: 0.01
+  initial_log_std: -1.5
+  action_transform: tanh
+  entropy_coef: 0.003
   action_scale: 1.0
-  save_dir: checkpoints/cartpole_mujoco
+  action_rate_limit: 1.0
+  reward_scale: 0.01
+  save_dir: checkpoints/mujoco_cartpole_target
   save_every: 200000
   log_path: runs/cartpole_mujoco.csv
   seed: 1

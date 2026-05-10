@@ -6,14 +6,14 @@ env:
     force_limit: 20.0
     pole_angle_limit: 0.8
     initial_angle_range: 0.02
-    target_position: 1.0
+    target_position: 0.0
     target_tolerance: 0.05
     target_velocity_tolerance: 0.15
     settle_bonus: 10.0
     reach_bonus: 20.0
 
 ppo:
-  total_steps: 1000000
+  total_steps: 500000
   num_envs: 64
   rollout_steps: 512
   update_epochs: 5
@@ -27,7 +27,8 @@ ppo:
   entropy_coef: 0.003
   action_scale: 1.0
   action_rate_limit: 1.0
+  normalize_observations: true
   reward_scale: 0.01
-  save_dir: checkpoints/mujoco_cartpole_target
-  save_every: 50000
-  log_path: runs/mujoco_cartpole_target.csv
+  save_dir: checkpoints/mujoco_cartpole_balance
+  save_every: 100000
+  log_path: runs/mujoco_cartpole_balance.csv
