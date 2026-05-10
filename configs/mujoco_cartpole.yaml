@@ -2,7 +2,7 @@ env:
   type: mujoco_cartpole
   device: cpu
   options:
-    max_episode_steps: 500
+    max_episode_steps: 1000
     force_limit: 100.0
     pole_angle_limit: 0.4
     initial_angle_range: 0.05
@@ -17,7 +17,8 @@ ppo:
   gamma: 0.99
   gae_lambda: 0.95
   hidden_size: 64
-  initial_log_std: 0.0
+  initial_log_std: 0.5
+  entropy_coef: 0.01
   action_scale: 1.0
   save_dir: checkpoints/mujoco_cartpole
   save_every: 50000

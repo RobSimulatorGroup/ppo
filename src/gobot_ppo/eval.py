@@ -65,11 +65,12 @@ def evaluate(
     steps=1000,
     seed=1,
 ):
-    add_gobot_pythonpath(gobot_pythonpath)
-    if project_path:
-        import gobot
+    if env_type not in ("mujoco_cartpole",):
+        add_gobot_pythonpath(gobot_pythonpath)
+        if project_path:
+            import gobot
 
-        gobot.app.context().set_project_path(project_path)
+            gobot.app.context().set_project_path(project_path)
 
     cfg = config or PPOConfig()
     env = GobotGymEnv(

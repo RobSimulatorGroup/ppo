@@ -8,21 +8,21 @@ import numpy as np
 
 _CARTPOLE_XML = """
 <mujoco model="cartpole">
-  <option timestep="0.002" integrator="RK4"/>
+  <option timestep="0.01" integrator="RK4"/>
   <worldbody>
     <light diffuse="0.8 0.8 0.8" pos="0 0 3" dir="0 0 -1"/>
     <geom type="plane" size="5 5 0.1" rgba="0.9 0.9 0.9 1"/>
     <body name="cart" pos="0 0 0.1">
-      <joint name="slider" type="slide" axis="1 0 0" limited="true" range="-2.4 2.4" damping="0.5"/>
+      <joint name="slider" type="slide" axis="1 0 0" limited="true" range="-2.4 2.4" damping="1.0"/>
       <geom type="box" size="0.2 0.15 0.1" mass="1.0" rgba="0.2 0.6 0.8 1"/>
       <body name="pole" pos="0 0 0.1">
-        <joint name="hinge" type="hinge" axis="0 1 0" damping="0.002"/>
-        <geom type="capsule" fromto="0 0 0 0 0 0.6" size="0.02" mass="0.1" rgba="0.8 0.2 0.2 1"/>
+        <joint name="hinge" type="hinge" axis="0 1 0" damping="0.05"/>
+        <geom type="capsule" fromto="0 0 0 0 0 0.3" size="0.03" mass="0.3" rgba="0.8 0.2 0.2 1"/>
       </body>
     </body>
   </worldbody>
   <actuator>
-    <motor joint="slider" ctrlrange="-1 1" ctrllimited="true" gear="100"/>
+    <motor joint="slider" ctrlrange="-1 1" ctrllimited="true" gear="20"/>
   </actuator>
 </mujoco>
 """
@@ -91,29 +91,25 @@ class MujocoCartPoleEnv:
         )
         truncated = self.episode_steps >= self.max_episode_steps
 
-        # Progress toward target
-        previous_error = self.target_position - self._previous_x
-        progress = abs(previous_error) - abs(target_error)
         self._previous_x = x
 
-        # Reward: balance + reach target
+        # Simple reward: alive + position closeness + balance
         distance = abs(target_error)
-        at_target = distance < 0.05 and abs(x_dot) < 0.2
+        near_target = distance < 0.3
+        closeness = math.exp(-3.0 * distance * distance)
         reward = (
-            1.0                                      # alive
-            - 10.0 * theta * theta                   # keep pole upright
-            - 0.5 * target_error * target_error      # move toward target
-            + 5.0 * progress                         # reward progress
-            - 0.001 * action_value * action_value    # action cost
+            1.0                                    # alive bonus
+            + 3.0 * closeness                      # position: peaks at target
+            + 1.0 * math.cos(theta)                # balance: 1 when upright
+            - 1.0 * x_dot * x_dot * closeness      # velocity penalty scaled by closeness
         )
-        if at_target:
-            reward += 5.0
+        if near_target and abs(x_dot) < 0.15 and abs(theta) < 0.15:
+            reward += 5.0  # bonus for being still at target
         if terminated:
-            reward = -10.0
+            reward = 0.0
 
         return obs, float(reward), terminated, truncated, {
             "target_error": target_error,
-            "at_target": at_target,
         }
 
     def close(self):

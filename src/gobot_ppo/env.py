@@ -97,10 +97,7 @@ class GobotGymEnv(_GymEnv):
                 **dict(env_options or {}),
             )
         else:
-            add_gobot_pythonpath(gobot_pythonpath)
-            import gobot
-
-            self.env = gobot.RLEnvironment(scene_path, robot=robot, backend=backend)
+            raise ValueError(f"unsupported env_type: {env_type}")
         self.action_scale = float(action_scale)
         self.action_rate_limit = None if action_rate_limit is None else float(action_rate_limit)
         self.finite_observation_limit = float(finite_observation_limit)
@@ -537,53 +534,20 @@ class CartPoleSliderEnv:
     def _reward(self, observation, action, terminated, previous_target_error, oversped_target):
         x, x_dot, theta, theta_dot, target_error = observation
         distance = abs(target_error)
-        reached = (
-            distance <= self.target_tolerance
-            and abs(x_dot) <= self.target_velocity_tolerance
-        )
-        near_target_now = distance <= self.target_near_tolerance
-        target_stable_now = (
-            near_target_now
-            and abs(x_dot) <= max(0.25, self.target_velocity_tolerance)
-            and abs(theta) <= 0.20
-            and abs(theta_dot) <= 1.5
-        )
-        progress = abs(float(previous_target_error)) - distance
-        desired_x_dot = max(-0.9, min(0.9, 1.4 * target_error))
-        if near_target_now:
-            desired_x_dot = 0.0
-        velocity_tracking_error = x_dot - desired_x_dot
-        near_target = math.exp(-distance * 5.0)
-        target_stillness = near_target * math.exp(-x_dot * x_dot * 8.0)
-        distance_bonus = math.exp(-distance * 2.5)
-        progress = max(-0.04, min(0.04, progress))
+
+        # Simple reward: alive + position closeness + balance
+        near_target = distance < 0.3
+        closeness = math.exp(-3.0 * distance * distance)
         reward = (
-            1.0
-            + 3.0 * math.cos(theta)
-            - 18.0 * theta * theta
-            - 0.15 * theta_dot * theta_dot
-            - 1.0 * target_error * target_error
-            + 10.0 * progress
-            + 3.0 * distance_bonus
-            - 0.40 * velocity_tracking_error * velocity_tracking_error
-            - 4.0 * near_target * x_dot * x_dot
-            + 12.0 * target_stillness
-            - 0.02 * action * action
+            1.0                                    # alive bonus
+            + 3.0 * closeness                      # position: peaks at target
+            + 1.0 * math.cos(theta)                # balance: 1 when upright
+            - 1.0 * x_dot * x_dot * closeness      # velocity penalty scaled by closeness
         )
-        if target_stable_now and not self._reached_target_near:
-            remaining_time_fraction = 1.0 - min(float(self.episode_steps), float(self.max_episode_steps)) / max(float(self.max_episode_steps), 1.0)
-            reward += self.fast_reach_bonus * max(0.0, remaining_time_fraction)
-            self._reached_target_near = True
-        if reached:
-            reward += 10.0
-        if target_stable_now:
-            reward += 25.0
-        if target_error * x_dot < -0.03:
-            reward -= 1.0 * abs(x_dot)
-        if oversped_target:
-            reward -= 8.0 * min(4.0, x_dot * x_dot)
+        if near_target and abs(x_dot) < 0.15 and abs(theta) < 0.15:
+            reward += 5.0  # bonus for being still at target
         if terminated:
-            reward -= 100.0
+            reward = 0.0
         return float(reward)
 
 
